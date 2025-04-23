@@ -1224,9 +1224,10 @@ int getCFMajorVersion(void)
         return 0;
     }
 
+    //stringByStandardizingPath won't remove /private/ prefix if the path does not exist on disk
     NSString* _link = @(link).stringByStandardizingPath.stringByResolvingSymlinksInPath;
     
-    NSString *pattern = @"^/var/containers/Bundle/Application/\\.jbroot-[0-9A-Z]{16}(/.+)$";
+    NSString *pattern = @"^(?:/private)?/var/containers/Bundle/Application/\\.jbroot-[0-9A-Z]{16}(/.+)$";
     NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
     NSTextCheckingResult *match = [regex firstMatchInString:_link options:0 range:NSMakeRange(0, [_link length])];
     assert(match != nil);

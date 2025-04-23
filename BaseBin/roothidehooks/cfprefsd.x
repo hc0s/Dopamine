@@ -9,18 +9,18 @@ bool __thread gAllowRedirection = true;
 
 BOOL preferencePlistNeedsRedirection(NSString *plistPath)
 {
-	if ( [plistPath hasPrefix:@"/var/db/"]
-	  || [plistPath hasPrefix:@"/private/var/preferences/"]
-	  || [plistPath hasPrefix:@"/private/var/mobile/Containers/"] ) 
-	  return NO;
+    NSString *pattern = @"^(/private)?/var/(\\w+)/Library/Preferences/";
+    NSRegularExpression* regex = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
+    NSTextCheckingResult* match = [regex firstMatchInString:plistPath options:0 range:NSMakeRange(0, plistPath.length)];
+	if(!match) return NO;
 
 	NSString *plistName = plistPath.lastPathComponent;
 
-	NSArray* appleInternalBundleIds = @[
+	NSArray* appleInternalPlistNames = @[
 		@"com.apple.Terminal.plist",
 	];
 
-	if ([appleInternalBundleIds containsObject:plistName])
+	if ([appleInternalPlistNames containsObject:plistName])
 		return YES;
 
 	if ([plistName hasPrefix:@"com.apple."]
@@ -61,7 +61,8 @@ BOOL new_CFPrefsGetPathForTriplet(CFStringRef identifier, CFStringRef user, BOOL
 {
 	BOOL orig = orig_CFPrefsGetPathForTriplet(identifier, user, byHost, container, buffer);
 
-	NSLog(@"CFPrefsGetPathForTriplet %@ %@ %d %@ : %d %s", identifier, user, byHost, container, orig, orig?(char*)buffer:"");
+	/* byHost = (host==kCFPreferencesCurrentHost) ? 1 : 0 */
+	NSLog(@"CFPrefsGetPathForTriplet identifier=%@ user=%@ byHost=%d container=%@ ret=%d : %s", identifier, user, byHost, container, orig, orig?(char*)buffer:"");
 	// NSLog(@"callstack=%@", [NSThread callStackSymbols]);
 
 	if(!gAllowRedirection) {
@@ -87,8 +88,17 @@ BOOL new_CFPrefsGetPathForTriplet(CFStringRef identifier, CFStringRef user, BOOL
 	return orig;
 }
 
-void* (*orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__)(id self, SEL selector, xpc_object_t message, xpc_connection_t connection, void* replyHandler);
-void* new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(id self, SEL selector, xpc_object_t message, xpc_connection_t connection, void* replyHandler)
+void* (*orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__)(id self, xpc_object_t message, xpc_connection_t connection, void* replyHandler);
+void* (*LEGACY_orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__)(id self, SEL selector, xpc_object_t message, xpc_connection_t connection, void* replyHandler);
+void* DISPATCH_orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(id self, xpc_object_t message, xpc_connection_t connection, void* replyHandler)
+{
+	if(@available(iOS 17.0, *)) {
+		return orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(self, message, connection, replyHandler);
+	} else {
+		return LEGACY_orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(self, nil, message, connection, replyHandler);
+	}
+}
+void* new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(id self, xpc_object_t message, xpc_connection_t connection, void* replyHandler)
 {
     uid_t clientUid = xpc_connection_get_euid(connection);
     pid_t clientPid = xpc_connection_get_pid(connection);
@@ -116,7 +126,11 @@ void* new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(id self, SEL sele
 	}
 	gAllowRedirection = allow;
 
-	return orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(self, selector, message, connection, replyHandler);
+	return DISPATCH_orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(self, message, connection, replyHandler);
+}
+void* LEGACY_new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(id self, SEL selector, xpc_object_t message, xpc_connection_t connection, void* replyHandler)
+{
+	return new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__(self, message, connection, replyHandler);
 }
 
 void cfprefsdInit(void)
@@ -135,8 +149,13 @@ void cfprefsdInit(void)
 	void* __CFPrefsDaemon_handleMessage_fromPeer_replyHandler__ = MSFindSymbol(coreFoundationImage, "-[CFPrefsDaemon handleMessage:fromPeer:replyHandler:]");
 	if(__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__)
 	{
-		MSHookFunction(__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__, (void *)new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__, (void **)&orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__);
-		NSLog(@"hook __CFPrefsDaemon_handleMessage_fromPeer_replyHandler__ %p => %p : %p", __CFPrefsDaemon_handleMessage_fromPeer_replyHandler__, new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__, orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__);
+		if(@available(iOS 17.0, *)) {
+			MSHookFunction(__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__, (void *)new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__, (void **)&orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__);
+			NSLog(@"hook __CFPrefsDaemon_handleMessage_fromPeer_replyHandler__ %p => %p : %p", __CFPrefsDaemon_handleMessage_fromPeer_replyHandler__, new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__, orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__);
+		} else {
+			MSHookFunction(__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__, (void *)LEGACY_new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__, (void **)&LEGACY_orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__);
+			NSLog(@"hook __CFPrefsDaemon_handleMessage_fromPeer_replyHandler__ %p => %p : %p", __CFPrefsDaemon_handleMessage_fromPeer_replyHandler__, LEGACY_new__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__, LEGACY_orig__CFPrefsDaemon_handleMessage_fromPeer_replyHandler__);
+		}
 	}
 
 	%init();

@@ -249,17 +249,6 @@
             [jetsamSpecifier setProperty:@"jetsamOptionTitles" forKey:@"titlesDataSource"];
             [specifiers addObject:jetsamSpecifier];
             
-            if (@available(iOS 16.0, *)) {
-                if (envManager.isJailbroken && !jbclient_jbsettings_get_bool("DevMode")) {
-                    PSSpecifier *devmodeSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"Settings_DevMode") target:self set:@selector(setDevMode:specifier:) get:@selector(getDevMode:) detail:nil cell:PSSwitchCell edit:nil];
-                    [appJitSpecifier setProperty:@YES forKey:@"enabled"];
-                    [appJitSpecifier setProperty:@"DevMode" forKey:@"key"];
-                    [appJitSpecifier setProperty:@YES forKey:@"default"];
-                    [specifiers addObject:devmodeSpecifier];
-                }
-            }
-            
-            
             if (!envManager.isJailbroken && !envManager.isInstalledThroughTrollStore) {
                 PSSpecifier *removeJailbreakSwitchSpecifier = [PSSpecifier preferenceSpecifierNamed:DOLocalizedString(@"Button_Remove_Jailbreak") target:self set:@selector(setRemoveJailbreakEnabled:specifier:) get:defGetter detail:nil cell:PSSwitchCell edit:nil];
                 [removeJailbreakSwitchSpecifier setProperty:@YES forKey:@"enabled"];
@@ -286,7 +275,7 @@
                     [changeMobilePasswordSpecifier setProperty:@"Button_Change_Mobile_Password" forKey:@"title"];
                     [changeMobilePasswordSpecifier setProperty:@"DOButtonCell" forKey:@"headerCellClass"];
                     [changeMobilePasswordSpecifier setProperty:@"key" forKey:@"image"];
-                    [changeMobilePasswordSpecifier setProperty:@"changeMobilePasswordPressed" forKey:@"action"];
+                    [changeMobilePasswordSpecifier setProperty:@"changeMobilePasswordWithAuthenticationPressed" forKey:@"action"];
                     [specifiers addObject:changeMobilePasswordSpecifier];
                     
                     PSSpecifier *reinstallPackageManagersSpecifier = [PSSpecifier emptyGroupSpecifier];
@@ -488,7 +477,29 @@
     [self.navigationController pushViewController:[[DOPkgManagerPickerViewController alloc] init] animated:YES];
 }
 
-- (void)changeMobilePasswordPressed
+- (void)changeMobilePasswordWithAuthenticationPressed
+{
+	LAContext *context = [[LAContext alloc] init];
+	NSError *authError = nil;
+	NSString *reason = DOLocalizedString(@"Password_Auth_Required");
+	
+	if ([context canEvaluatePolicy:LAPolicyDeviceOwnerAuthentication error:&authError]) {
+		[context evaluatePolicy:LAPolicyDeviceOwnerAuthentication
+			localizedReason:reason
+			reply:^(BOOL success, NSError * _Nullable error) {
+			dispatch_async(dispatch_get_main_queue(), ^{
+				if (success) {
+					[self changeMobilePassword];
+				}
+			});
+		}];
+	}
+	else {
+		[self changeMobilePassword];
+	}
+}
+
+- (void)changeMobilePassword
 {
     UIAlertController *changeMobilePasswordAlert = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Button_Change_Mobile_Password") message:DOLocalizedString(@"Alert_Change_Mobile_Password_Body") preferredStyle:UIAlertControllerStyleAlert];
     
@@ -507,7 +518,7 @@
         NSString *repeatPassword = changeMobilePasswordAlert.textFields[1].text;
         if (![password isEqualToString:repeatPassword]) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                [self changeMobilePasswordPressed];
+                [self changeMobilePassword];
             });
         }
         else {
@@ -559,30 +570,5 @@
     [self reloadSpecifiers];
 }
 
-- (id)getDevMode:(PSSpecifier *)specifier
-{
-    return @(jbclient_jbsettings_get_bool("DevMode"));
-}
-
-- (void)setDevMode:(id)value specifier:(PSSpecifier *)specifier
-{
-    BOOL enable = ((NSNumber *)value).boolValue;
-    
-    if(enable) {
-        jbclient_platform_jbsettings_set_bool("DevMode", YES);
-        return;
-    }
-    
-    UIAlertController *confirmationAlertController = [UIAlertController alertControllerWithTitle:DOLocalizedString(@"Alert_Disable_DevMode_Title") message:DOLocalizedString(@"Alert_Disable_DevMode_Body") preferredStyle:UIAlertControllerStyleAlert];
-    UIAlertAction *continueAction = [UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Continue") style:UIAlertActionStyleDestructive handler:^(UIAlertAction * _Nonnull action) {
-            jbclient_platform_jbsettings_set_bool("DevMode", NO);
-    }];
-    UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:DOLocalizedString(@"Button_Cancel") style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-        [self reloadSpecifiers];
-    }];
-    [confirmationAlertController addAction:continueAction];
-    [confirmationAlertController addAction:cancelAction];
-    [self presentViewController:confirmationAlertController animated:YES completion:nil];
-}
 
 @end

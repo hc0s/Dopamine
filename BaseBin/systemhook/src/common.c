@@ -136,28 +136,20 @@ static int spawn_exec_hook_common(const char *path,
 			break;
 		}
 
-
-/*********** roothide specific ************/
-struct statfs fs = {0};
-bool isAppPath = is_app_path(path);
-bool nonJailbreakPath = statfs(path, &fs)==0 && strcmp(fs.f_mntonname, "/private/var") != 0;
-/*********************************** roothide specific *************************************/
-
-
 		// Check if we can find a _SafeMode or _MSSafeMode variable
 		// In this case we do not want to inject anything
 		const char *safeModeValue = envbuf_getenv((const char **)envp, "_SafeMode");
 		const char *msSafeModeValue = envbuf_getenv((const char **)envp, "_MSSafeMode");
 		if (safeModeValue) {
 			if (!strcmp(safeModeValue, "1")) {
-				if(nonJailbreakPath||isAppPath) shouldInsertJBEnv = false;
+				if(!allowInjectWithSafeMode(path)) shouldInsertJBEnv = false;
 				hasSafeModeVariable = true;
 				break;
 			}
 		}
 		if (msSafeModeValue) {
 			if (!strcmp(msSafeModeValue, "1")) {
-				if(nonJailbreakPath||isAppPath) shouldInsertJBEnv = false;
+				if(!allowInjectWithSafeMode(path)) shouldInsertJBEnv = false;
 				hasSafeModeVariable = true;
 				break;
 			}

@@ -13,42 +13,7 @@ int roothide_unsupport_request()
 
 bool roothide_domain_allowed(audit_token_t clientToken)
 {
-	//fast path
-	uid_t uid = audit_token_to_euid(clientToken);
-	if(uid != 501) return true;
-
-	pid_t pid = audit_token_to_pid(clientToken);
-
-	uint32_t csflags = 0;
-    csops(pid, CS_OPS_STATUS, &csflags, sizeof(csflags));
-    if((csflags & CS_PLATFORM_BINARY) != 0) {
-        return true;
-    }
-
-	const char* procpath = proc_get_path(pid,NULL);
-	if(procpath && string_has_suffix(procpath, "/Dopamine.app/Dopamine")) 
-	{
-		/* if the jailbreak activation is interrupted for some reason, 
-			we prevent the app from relaunching to prevent the system from being in an unknown state */
-		if(launchdhookFirstLoad) {
-#ifdef ENABLE_LOGS
-launchd_panic("reboot device due to jailbreak failure!");
-#endif
-			kill(pid, SIGKILL);
-			return false;
-		}
-
-		char roothidefile[PATH_MAX];
-		snprintf(roothidefile, sizeof(roothidefile), "%s.roothide", procpath);
-		if(access(roothidefile, F_OK) != 0) {
-			kill(pid, SIGKILL);
-			return false;
-		}
-
-		return true;
-	}
-
-	//after checking Dopamine app (always allows Dopamine app to check in even if it is blacklisted)
+	//its fast enough
 	if(isBlacklistedToken(&clientToken)) {
 		JBLogDebug("ignore xpc message from blacklisted process (%d),%s", audit_token_to_pid(clientToken), proc_get_path(audit_token_to_pid(clientToken),NULL));
 		return false;

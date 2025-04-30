@@ -3,42 +3,12 @@
 #import <fcntl.h>
 #include "common.h"
 
-bool stringStartsWith(const char *str, const char* prefix)
-{
-	if (!str || !prefix) {
-		return false;
-	}
-
-	size_t str_len = strlen(str);
-	size_t prefix_len = strlen(prefix);
-
-	if (str_len < prefix_len) {
-		return false;
-	}
-
-	return !strncmp(str, prefix, prefix_len);
-}
-
-bool is_sub_path(const char* parent, const char* child)
-{
-	char real_child[PATH_MAX]={0};
-	char real_parent[PATH_MAX]={0};
-
-	if(!realpath(child, real_child)) return false;
-	if(!realpath(parent, real_parent)) return false;
-
-	if(!stringStartsWith(real_child, real_parent))
-		return false;
-
-	return real_child[strlen(real_parent)] == '/';
-}
-
 %hookf(int, fcntl, int fildes, int cmd, ...) {
 	if (cmd == F_SETPROTECTIONCLASS) {
 		char filePath[PATH_MAX];
 		if (fcntl(fildes, F_GETPATH, filePath) != -1) {
 			// Skip setting protection class on jailbreak apps, this doesn't work and causes snapshots to not be saved correctly
-			if (is_sub_path(jbroot("/var/mobile/Library/SplashBoard/Snapshots/"), filePath)) {
+			if (isSubPathOf(jbroot("/var/mobile/Library/SplashBoard/Snapshots/"), filePath)) {
 				return 0;
 			}
 		}
@@ -106,7 +76,7 @@ static const void *kDenyQueryTagKey = &kDenyQueryTagKey;
 			return nil;
 		}
 
-		if(result && executableURL && isJailbreakPath(executableURL.path.fileSystemRepresentation)) {
+		if(result && executableURL && isJailbreakBundlePath(executableURL.path.fileSystemRepresentation)) {
 			NSLog(@"FBSApplicationLibrary deny query %@", bundleIdentifier);
 			return nil;
 		}

@@ -27,7 +27,12 @@ void abort_with_reason(uint32_t reason_namespace, uint64_t reason_code, const ch
 #define PROCLOG(progname, ...) do { const char* name=getprogname(); if(name && strcmp(name, progname)==0) {SYSLOG(__VA_ARGS__);} } while(0)
 #define PROCASSERT(progname, e) do { const char* name=getprogname(); if(name && strcmp(name, progname)==0) {ASSERT(e);} } while(0)
 
-bool is_app_path(const char* path);
+pid_t __getppid();
+
+bool hasTrollstoreMarker(const char* path);
+bool isRemovableBundlePath(const char* path);
+bool allowInjectWithSafeMode(const char* path);
+
 void roothide_init();
 void roothide_init_with_checkin(const char* rootdir);
 void roothide_init_with_executable(const char* executable);

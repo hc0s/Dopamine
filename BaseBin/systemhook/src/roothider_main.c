@@ -3,7 +3,6 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include <libgen.h>
-#include <libproc.h>
 #include <sys/sysctl.h>
 #include <sys/proc_info.h>
 
@@ -21,53 +20,6 @@ bool dyld_patch_fallback_enabled = false;
 //export for PatchLoader
 __attribute__((visibility("default"))) int PLRequiredJIT() {
 	return 0;
-}
-
-#define APP_PATH_PREFIX "/private/var/containers/Bundle/Application/"
-bool is_app_path(const char* path)
-{
-    if(!path) return false;
-
-    char rp[PATH_MAX];
-    if(!realpath(path, rp)) return false;
-
-    if(strncmp(rp, APP_PATH_PREFIX, sizeof(APP_PATH_PREFIX)-1) != 0)
-        return false;
-
-    char* p1 = rp + sizeof(APP_PATH_PREFIX)-1;
-    char* p2 = strchr(p1, '/');
-    if(!p2) return false;
-
-    //is normal app or jailbroken app/daemon?
-    if((p2 - p1) != (sizeof("xxxxxxxx-xxxx-xxxx-yxxx-xxxxxxxxxxxx")-1))
-        return false;
-
-	return true;
-}
-
-pid_t __getppid()
-{
-	int32_t opt[4] = {
-		CTL_KERN,
-		KERN_PROC,
-		KERN_PROC_PID,
-		getpid(),
-	};
-	struct kinfo_proc info={0};
-	size_t len = sizeof(struct kinfo_proc);
-	if(sysctl(opt, 4, &info, &len, NULL, 0) == 0) {
-		if((info.kp_proc.p_flag & P_TRACED) != 0) {
-			return info.kp_proc.p_oppid;
-		}
-	}
-
-    struct proc_bsdinfo procInfo;
-	//some process may be killed by sandbox if call systme getppid() so try this first
-	if (proc_pidinfo(getpid(), PROC_PIDTBSDINFO, 0, &procInfo, sizeof(procInfo)) == sizeof(procInfo)) {
-		return procInfo.pbi_ppid;
-	}
-
-	return getppid();
 }
 
 static uid_t _CFGetSVUID(bool *successful) {
@@ -331,7 +283,9 @@ int roothide_systemhook___posix_spawn_posthook(pid_t *restrict pidp, const char 
 	// on some devices dyldhook may fail due to vm_protect(VM_PROT_READ|VM_PROT_WRITE), 2, (os/kern) protection failure in dsc::__DATA_CONST:__const, 
 	// so we need to disable dyld-in-cache here. (or we can use VM_PROT_READ|VM_PROT_WRITE|VM_PROT_COPY)
 	char **envc = envbuf_mutcopy((const char **)envp);
-	envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
+	if(envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES")) {
+		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
+	}
 
 	if(!dyld_patch_global_enabled)
 	{
@@ -405,7 +359,9 @@ int roothide_systemhook___execve_posthook(const char *path, char *const argv[], 
 	while(!traced) usleep(10*1000);
 
 	char **envc = envbuf_mutcopy((const char **)envp);
-	envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
+	if(envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES")) {
+		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
+	}
 	
 	int ret = __execve_orig(path, argv, envc);
 	int olderr = errno;
@@ -495,9 +451,11 @@ extern int parse_dyldhook_jbinfo(char **jbRootPathOut, char **bootUUIDOut, char 
 
 void roothide_init()
 {
-	const char* DYLD_IN_CACHE = getenv("DYLD_IN_CACHE");
-	if(strcmp(DYLD_IN_CACHE, "0") == 0) {
-		unsetenv("DYLD_IN_CACHE");
+	if(getenv("DYLD_INSERT_LIBRARIES")) {
+		const char* DYLD_IN_CACHE = getenv("DYLD_IN_CACHE");
+		if(DYLD_IN_CACHE && strcmp(DYLD_IN_CACHE, "0") == 0) {
+			unsetenv("DYLD_IN_CACHE");
+		}
 	}
 
 	HOOK_DYLIB_PATH = strdup(dyld_image_path_containing_address(&__dso_handle));
@@ -527,7 +485,7 @@ void roothide_init_with_executable(const char* executable)
 {
 	if (__builtin_available(iOS 16.0, *))
 	{
-		if(!is_app_path(executable)) {
+		if(!isRemovableBundlePath(executable)) {
 			litehook_hook_function(__sysctl, __sysctl_hook);
 			litehook_hook_function(__sysctlbyname, __sysctlbyname_hook);
 		}

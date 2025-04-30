@@ -287,7 +287,7 @@ int systemwide_process_checkin(audit_token_t *processToken, char **rootPathOut, 
 	}
 
 	bool fullyDebugged = false;
-	if (is_app_path(procPath) || is_sub_path(JBROOT_PATH("/Applications"), procPath)) {
+	if (isRemovableBundlePath(procPath) || isSubPathOf(JBROOT_PATH("/Applications"), procPath)) {
 /*************************************** roothide specific *********************************/
 		
 		// This is an app, enable CS_DEBUGGED based on user preference

@@ -96,13 +96,13 @@ void patchedtest(mach_port_t task, uint64_t remoteLoadAddress)
 #define DYLD_INFO_MAX_SEARCH_INDEX 200
 int task_set_dyld_info(uint64_t task, uint64_t addr, uint64_t size)
 {
-    static uint32_t all_image_info_addr_offset=0, all_image_info_size_offset=0;
+    static uint32_t all_image_info_addr_offset=0, all_image_info_size_offset=0, info_offset=0;
 
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         task_dyld_info_data_t dyldInfo={0};
         uint32_t count = TASK_DYLD_INFO_COUNT;
-        kern_return_t kr = task_info(mach_task_self_, TASK_DYLD_INFO, (task_info_t)&dyldInfo, &count);
+        kern_return_t kr = task_info(mach_task_self(), TASK_DYLD_INFO, (task_info_t)&dyldInfo, &count);
         if(kr != KERN_SUCCESS) {
             JBLogError("task_info failed: %d,%s", kr, mach_error_string(kr));
             return;
@@ -112,7 +112,9 @@ int task_set_dyld_info(uint64_t task, uint64_t addr, uint64_t size)
     
         uint64_t selftask = task_self();
         JBLogDebug("task_set_dyld_info: selftask=%llx", selftask);
-        for(int i=0; i<DYLD_INFO_MAX_SEARCH_INDEX; i++) 
+
+        int i=0;
+        for(; i<DYLD_INFO_MAX_SEARCH_INDEX; i++) 
         {
             if(kread64(selftask + i*8)==dyldInfo.all_image_info_addr
              && kread64(selftask + (i+1)*8)==dyldInfo.all_image_info_size) {
@@ -125,10 +127,28 @@ int task_set_dyld_info(uint64_t task, uint64_t addr, uint64_t size)
                 break;
             }
         }
+        for(; i<(DYLD_INFO_MAX_SEARCH_INDEX+0); i++) {
+            uint64_t info[6] = {1,0,0,0,1,0};
+            uint8_t buffer[sizeof(info)] = {0};
+            kreadbuf(task + i*8, buffer, sizeof(buffer));
+            if(memcmp(buffer, info, sizeof(info))==0) {
+                JBLogDebug("task_set_dyld_info: info offset=[%d]0x%x\n", i, i*8);
+                info_offset = i*8;
+                break;
+            }
+        }
     });
 
     if(all_image_info_addr_offset==0 || all_image_info_size_offset==0) {
         JBLogError("invalid all_image_info_addr/size offset");
+        return -1;
+    }
+
+    if(info_offset) {
+        uint64_t info[6] = {0};
+        kwritebuf(task + info_offset, info, sizeof(info));
+    } else if(task != proc_task(proc_find(1))) {
+        JBLogError("invalid info offset");
         return -1;
     }
 
@@ -521,13 +541,6 @@ int proc_patch_dyld(pid_t pid)
         goto failed;
     }
 
-    if(task_set_dyld_info(mach_task, remoteLoadAddress + patchedDyldInfo->all_image_info_addr, patchedDyldInfo->all_image_info_size) != 0) {
-        JBLogError("task_set_dyld_info failed");
-        goto failed;
-    }
-
-    JBLogDebug("dyld all_image_info update: %p -> %p", (void*)(dyld_address + stockDyldInfo->all_image_info_addr), (void*)(remoteLoadAddress + patchedDyldInfo->all_image_info_addr));
-
     void* new_entry = (void*)(remoteLoadAddress + patchedDyldInfo->entrypoint);
 
     bool reentry = false;
@@ -620,6 +633,14 @@ reentry_end:
         JBLogError("dyld entrypoint udpate failed");
         goto failed;
     }
+
+    if(task_set_dyld_info(mach_task, remoteLoadAddress + patchedDyldInfo->all_image_info_addr, patchedDyldInfo->all_image_info_size) != 0) {
+        JBLogError("task_set_dyld_info failed");
+        goto failed;
+    }
+
+    JBLogDebug("dyld all_image_info update: %p -> %p", (void*)(dyld_address + stockDyldInfo->all_image_info_addr), (void*)(remoteLoadAddress + patchedDyldInfo->all_image_info_addr));
+
 
     //patchedtest(task, remoteLoadAddress);
 

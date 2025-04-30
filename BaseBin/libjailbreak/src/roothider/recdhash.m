@@ -194,7 +194,7 @@ int ensure_randomized_cdhash_for_slice(const char* inputPath, uint64_t offset, v
 			break;
 		}
 
-		if(is_app_path(inputPath))
+		if(isRemovableBundlePath(inputPath))
 		{
 			if(!hasTrollstoreLiteMarker(inputPath)) {
 				// ignore adhoc signed apps(removable system apps or other stuffs) which is not installed via tslite

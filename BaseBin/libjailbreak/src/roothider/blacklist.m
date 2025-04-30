@@ -10,13 +10,13 @@
 NSString *getAppBundlePathFromSpawnPath(const char *path) {
     if (!path) return nil;
 
-    char rp[PATH_MAX];
-    if (!realpath(path, rp)) return nil;
+    char abspath[PATH_MAX];
+    if (!realpath(path, abspath)) return nil;
 
-    if (strncmp(rp, APP_PATH_PREFIX, sizeof(APP_PATH_PREFIX) - 1) != 0)
+    if (strncmp(abspath, APP_PATH_PREFIX, sizeof(APP_PATH_PREFIX) - 1) != 0)
         return nil;
 
-    char *p1 = rp + sizeof(APP_PATH_PREFIX) - 1;
+    char *p1 = abspath + sizeof(APP_PATH_PREFIX) - 1;
     char *p2 = strchr(p1, '/');
     if (!p2) return nil;
 
@@ -29,7 +29,7 @@ NSString *getAppBundlePathFromSpawnPath(const char *path) {
 
     p[sizeof(".app/") - 1] = '\0';
 
-    return [NSString stringWithUTF8String:rp];
+    return [NSString stringWithUTF8String:abspath];
 }
 
 // get main bundle identifier of app for (PlugIns's) executable path
@@ -48,9 +48,15 @@ NSString *getAppIdentifierFromPath(const char *path) {
     return identifier;
 }
 
+NSArray* builtinApps = @[
+    @"com.opa334.Dopamine-roothide",
+];
+
 bool isBlacklistedApp(const char* identifier)
 {
     if(!identifier) return false;
+
+    if([builtinApps containsObject:@(identifier)]) return false;
 
     NSString* configFilePath = JBROOT_PATH(@"/var/mobile/Library/RootHide/RootHideConfig.plist");
     NSDictionary* roothideConfig = [NSDictionary dictionaryWithContentsOfFile:configFilePath];

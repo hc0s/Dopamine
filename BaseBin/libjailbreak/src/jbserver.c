@@ -7,6 +7,10 @@ int jbserver_received_xpc_message(struct jbserver_impl *server, xpc_object_t xms
 {
 	if (xpc_get_type(xmsg) != XPC_TYPE_DICTIONARY) return -1;
 
+/**********************************************/
+	roothide_handler_jbserver_msg(xmsg);
+/*********************************************/
+
 	if (!xpc_dictionary_get_value(xmsg, "jb-domain")) return -1;
 	if (!xpc_dictionary_get_value(xmsg, "action")) return -1;
 
@@ -20,14 +24,6 @@ int jbserver_received_xpc_message(struct jbserver_impl *server, xpc_object_t xms
 
 	audit_token_t clientToken = { 0 };
 	xpc_dictionary_get_audit_token(xmsg, &clientToken);
-
-
-/************************************/
-const char* desc = NULL;
-JBLogDebug("jbserver received xpc message from (%d) %s :\n%s", audit_token_to_pid(clientToken), proc_get_path(audit_token_to_pid(clientToken),NULL), (desc=xpc_copy_description(xmsg)));
-if(desc) free((void*)desc);
-/************************************/
-
 
 	if (domain->permissionHandler) {
 		if (!domain->permissionHandler(clientToken)) return -2;

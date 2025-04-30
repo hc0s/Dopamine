@@ -7,6 +7,8 @@
 #include <libgen.h>
 #include <sandbox.h>
 #include <libproc.h>
+#include <xpc/xpc.h>
+#include <sys/mount.h>
 #include <sys/proc_info.h>
 #include <dispatch/dispatch.h>
 
@@ -181,20 +183,18 @@ bool string_has_suffix(const char* str, const char* suffix)
 	return !strcmp(str + str_len - suffix_len, suffix);
 }
 
-
 #define APP_PATH_PREFIX "/private/var/containers/Bundle/Application/"
-
-char* getAppUUIDOffset(const char* path)
+char* getAppUUIDPath(const char* path)
 {
     if(!path) return NULL;
 
-    char rp[PATH_MAX];
-    if(!realpath(path, rp)) return NULL;
+    char abspath[PATH_MAX];
+    if(!realpath(path, abspath)) return NULL;
 
-    if(strncmp(rp, APP_PATH_PREFIX, sizeof(APP_PATH_PREFIX)-1) != 0)
+    if(strncmp(abspath, APP_PATH_PREFIX, sizeof(APP_PATH_PREFIX)-1) != 0)
         return NULL;
 
-    char* p1 = rp + sizeof(APP_PATH_PREFIX)-1;
+    char* p1 = abspath + sizeof(APP_PATH_PREFIX)-1;
     char* p2 = strchr(p1, '/');
     if(!p2) return NULL;
 
@@ -204,12 +204,41 @@ char* getAppUUIDOffset(const char* path)
 	
 	*p2 = '\0';
 
-	return strdup(rp);
+	return strdup(abspath);
 }
 
-bool hasTrollstoreLiteMarker(const char* exepath)
+bool isRemovableBundlePath(const char* path)
 {
-    char* uuidpath = getAppUUIDOffset(exepath);
+    const char* uuidpath = getAppUUIDPath(path);
+	if(!uuidpath) return false;
+	free((void*)uuidpath);
+	return true;
+}
+
+bool hasTrollstoreMarker(const char* path)
+{
+    char* uuidpath = getAppUUIDPath(path);
+	if(!uuidpath) return false;
+
+	char* markerpath=NULL;
+	asprintf(&markerpath, "%s/_TrollStore", uuidpath);
+
+	int ret = access(markerpath, F_OK);
+    if(ret != 0) {
+        free((void*)markerpath); markerpath = NULL;
+        asprintf(&markerpath, "%s/_TrollStoreLite", uuidpath);
+        ret = access(markerpath, F_OK);
+    }
+
+    free((void*)markerpath);
+	free((void*)uuidpath);
+
+	return ret==0;
+}
+
+bool hasTrollstoreLiteMarker(const char* path)
+{
+    char* uuidpath = getAppUUIDPath(path);
 	if(!uuidpath) return false;
 
 	char* markerpath=NULL;
@@ -223,28 +252,7 @@ bool hasTrollstoreLiteMarker(const char* exepath)
 	return ret==0;
 }
 
-bool is_app_path(const char* path)
-{
-    if(!path) return false;
-
-    char rp[PATH_MAX];
-    if(!realpath(path, rp)) return false;
-
-    if(strncmp(rp, APP_PATH_PREFIX, sizeof(APP_PATH_PREFIX)-1) != 0)
-        return false;
-
-    char* p1 = rp + sizeof(APP_PATH_PREFIX)-1;
-    char* p2 = strchr(p1, '/');
-    if(!p2) return false;
-
-    //is normal app or jailbroken app/daemon?
-    if((p2 - p1) != (sizeof("xxxxxxxx-xxxx-xxxx-yxxx-xxxxxxxxxxxx")-1))
-        return false;
-
-	return true;
-}
-
-bool is_sub_path(const char* parent, const char* child)
+bool isSubPathOf(const char* parent, const char* child)
 {
 	char real_child[PATH_MAX]={0};
 	char real_parent[PATH_MAX]={0};
@@ -471,6 +479,21 @@ int exec_cmd_roothide_spawn(pid_t* pidp, const char* path, const posix_spawn_fil
         attrp = &attr;
     }
 
+    int argc = 0;
+    for(int i=0; argv && argv[i]; i++) {
+        argc++;
+    }
+
+    bool need_patch_child = exec_patch_enabled;
+    if(dlopen("systemhook.dylib", RTLD_NOLOAD)) {
+    /* if systemhook has been loaded into the current process, 
+        it means posix_spawn has been hooked and we can skip patching. */
+        need_patch_child = false;
+    } else if(argc==3 && strcmp(argv[1],"trollstore")==0 && strcmp(argv[2],"delete-bootstrap")==0) {
+        // skip patching for trollstore bootstrap delete
+        need_patch_child = false;
+    }
+
     short flags=0;
     posix_spawnattr_getflags(attrp, &flags);
     bool should_resume = (flags & POSIX_SPAWN_START_SUSPENDED) == 0;
@@ -489,9 +512,7 @@ int exec_cmd_roothide_spawn(pid_t* pidp, const char* path, const posix_spawn_fil
 
     if(ret == 0 && pid > 0) 
     {
-        /* if systemhook has been loaded into the current process, 
-            it means posix_spawn has been hooked and we can skip patching. */
-        if(exec_patch_enabled && !dlopen("systemhook.dylib", RTLD_NOLOAD)) {
+        if(need_patch_child) {
             // will fail before launchdhook injected and dyld patched, eg: opainject...
             if(jbdSpawnPatchChild(pid, should_resume) != 0) {
                 JBLogError("Failed to patch spawned process (%d) %s", pid, path);
@@ -541,4 +562,74 @@ int ensure_dyld_trustcache(const char* path)
 
     free(dyldTCFile);
     return 0;
+}
+
+#define RB2_USERREBOOT (0x2000000000000000llu)
+void check_usreboot_msg(xpc_object_t xmsg)
+{
+	if(xpc_dictionary_get_uint64(xmsg, "flags") != RB2_USERREBOOT) {
+		return;
+	}
+	if(xpc_dictionary_get_uint64(xmsg, "type") != 1) {
+		return;
+	}
+	if(!xpc_dictionary_get_value(xmsg, "handle")
+     || xpc_dictionary_get_uint64(xmsg, "handle") != 0) {
+		return;
+	}
+	
+	if(getpid() != 1) {
+		JBLogError("usereboot message not from launchd?");
+		return;
+	}
+
+	audit_token_t clientToken = {0};
+	xpc_dictionary_get_audit_token(xmsg, &clientToken);
+
+	if(audit_token_to_euid(clientToken) != 0) {
+		JBLogError("usereboot message not from root process?");
+		return;
+	}
+
+	struct statfs fsb={0};
+	if (statfs("/Developer", &fsb) != 0) {
+		JBLogError("unable to statfs /Developer, already broken?");
+		return;
+	}
+
+	if(strcmp(fsb.f_mntonname, "/Developer") != 0) {
+		JBLogDebug("/Developer not mounted. skip");
+		return;
+	}
+
+	// fix Xcode debugging being broken after the userspace reboot
+	// for iOS15 it is too late by the time launchd re-execs itself
+
+	int retval = unmount("/Developer", MNT_FORCE);
+
+	if(retval != 0) {
+		JBLogError("unmount /Developer : %d %d,%s", retval, errno, strerror(errno));
+	}
+}
+
+void roothide_handler_jbserver_msg(xpc_object_t xmsg)
+{
+    check_usreboot_msg(xmsg);
+
+#ifdef ENABLE_LOGS
+
+	if (!xpc_dictionary_get_value(xmsg, "jb-domain")) return;
+	if (!xpc_dictionary_get_value(xmsg, "action")) return;
+
+	audit_token_t clientToken = { 0 };
+	xpc_dictionary_get_audit_token(xmsg, &clientToken);
+
+    const char* desc = NULL;
+    JBLogDebug("jbserver received xpc message from (%d) %s :\n%s", 
+        audit_token_to_pid(clientToken), 
+        proc_get_path(audit_token_to_pid(clientToken),NULL), 
+        (desc=xpc_copy_description(xmsg)));
+    if(desc) free((void*)desc);
+
+#endif
 }

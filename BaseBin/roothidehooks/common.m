@@ -7,72 +7,30 @@
 #include <sys/mount.h>
 #include "common.h"
 
-#define APP_PATH_PREFIX "/private/var/containers/Bundle/Application/"
-
-char* getAppUUIDOffset(const char* path)
+bool isJailbreakBundlePath(const char* path)
 {
-    if(!path) return NULL;
-
-    char rp[PATH_MAX];
-    if(!realpath(path, rp)) return NULL;
-
-    if(strncmp(rp, APP_PATH_PREFIX, sizeof(APP_PATH_PREFIX)-1) != 0)
-        return NULL;
-
-    char* p1 = rp + sizeof(APP_PATH_PREFIX)-1;
-    char* p2 = strchr(p1, '/');
-    if(!p2) return NULL;
-
-    //is normal app or jailbroken app/daemon?
-    if((p2 - p1) != (sizeof("xxxxxxxx-xxxx-xxxx-yxxx-xxxxxxxxxxxx")-1))
-        return NULL;
-	
-	*p2 = '\0';
-
-	return strdup(rp);
-}
-
-bool hasTrollstoreMarker(const char* uuidpath)
-{
-	char* p1=NULL;
-	asprintf(&p1, "%s/_TrollStore", uuidpath);
-
-	int trollapp = access(p1, F_OK);
-	if(trollapp != 0) 
-	{
-		free((void*)p1);
-		asprintf(&p1, "%s/_TrollStoreLite", uuidpath);
-		trollapp = access(p1, F_OK);
-	}
-
-	free((void*)p1);
-
-	if(trollapp==0) 
-		return true;
-
-	return false;
-}
-
-bool isJailbreakPath(const char* path)
-{
-    if(!path) return false;
+	//no path? may be a system bundle
+	if(!path) return false;
 
 	struct statfs fs;
-	if(statfs(path, &fs)==0)
+	if(statfs(path, &fs) != 0)
 	{
-		if(strcmp(fs.f_mntonname, "/private/var") != 0)
-			return false;
+		//path not exists, may be a jailbreak bundle
+		return true;
 	}
 
-	char* p1 = getAppUUIDOffset(path);
-	if(!p1) return true; //reject by default
+	if(strcmp(fs.f_mntonname, "/") == 0) {
+		// anything on rootfs is not jailbreak stuffs
+		return false;
+	}
 
-	bool trollapp = hasTrollstoreMarker(p1);
+	if(isRemovableBundlePath(path))
+	{
+		if(!hasTrollstoreMarker(path)) {
+			// normal app bundle
+			return false;
+		}
+	}
 
-	free((void*)p1);
-
-	if(trollapp) 
-		return true;
-
-    return false;
+	return true;
 }

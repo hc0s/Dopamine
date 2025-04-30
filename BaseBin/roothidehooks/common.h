@@ -6,7 +6,7 @@
 #include <libjailbreak/roothider.h>
 #include <libjailbreak/codesign.h>
 
-bool isJailbreakPath(const char* path);
+bool isJailbreakBundlePath(const char* path);
 
 //These apps may be signed with a (fake) certificate
 #define SENSITIVE_APP_LIST   @[ \

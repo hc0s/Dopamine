@@ -163,13 +163,40 @@ bool process_force_dyld_patch(const char* path, const char** argv)
 
 bool dyld_patch_enabled()
 {
-    return true;
-    // return jbinfo(dyld_patch_enabled);
+    return jbinfo(dyld_patch_enabled);
 }
 
 int roothide_patch_proc(pid_t pid)
 {
-    return dyld_patch_enabled() ? proc_patch_dyld(pid) : proc_patch_csflags(pid);
+    if(!dyld_patch_enabled()) {
+        if(!process_force_dyld_patch(proc_get_path(pid,NULL), NULL)) {
+            return proc_patch_csflags(pid);
+        }
+    }
+    return proc_patch_dyld(pid);
+}
+
+int roothide_config_set_spinlock_fix(bool enabled)
+{
+    NSString* roothideDir = JBROOT_PATH(@"/var/mobile/Library/RootHide");
+    if(![NSFileManager.defaultManager fileExistsAtPath:roothideDir]) {
+        NSDictionary* attr = @{NSFilePosixPermissions:@(0755), NSFileOwnerAccountID:@(501), NSFileGroupOwnerAccountID:@(501)};
+        if(![NSFileManager.defaultManager createDirectoryAtPath:roothideDir withIntermediateDirectories:YES attributes:attr error:nil])
+        {
+            JBLogError("Failed to create directory: %@", roothideDir);
+            return -1;
+        }
+    }
+
+    NSString *configFilePath = JBROOT_PATH(@"/var/mobile/Library/RootHide/RootHideConfig.plist");
+    NSMutableDictionary* defaults = [NSMutableDictionary dictionaryWithContentsOfFile:configFilePath];
+    if(!defaults) defaults = [[NSMutableDictionary alloc] init];
+    [defaults setValue:@(enabled) forKey:@"spinlockFixApplied"];
+    if(![defaults writeToFile:configFilePath atomically:YES]) {
+        JBLogError("Failed to write config file: %@", configFilePath);
+        return -1;
+    }
+    return 0;
 }
 
 bool string_has_prefix(const char *str, const char* prefix)
@@ -513,6 +540,13 @@ int exec_cmd_roothide_spawn(pid_t* pidp, const char* path, const posix_spawn_fil
     } else if(argc==3 && strcmp(argv[1],"trollstore")==0 && strcmp(argv[2],"delete-bootstrap")==0) {
         // skip patching for trollstore bootstrap delete
         need_patch_child = false;
+    }
+
+    if(need_patch_child && !dyld_patch_enabled()) {
+        if(jbclient_trust_executable_recurse(path, NULL) != 0) {
+            JBLogError("Failed to trust executable: %s", path);
+            return 999;
+        }
     }
 
     short flags=0;

@@ -9,6 +9,8 @@ extern bool launchdhookFirstLoad;
 void launchd_panic(const char* fmt, ...);
 
 bool dyld_patch_enabled();
+bool process_force_dyld_patch(const char* path, const char** argv);
+int roothide_config_set_spinlock_fix(bool enabled);
 
 bool proc_cantrace(pid_t pid);
 int proc_patch_dyld(pid_t pid);

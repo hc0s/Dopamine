@@ -52,6 +52,8 @@ bool jbclient_blacklist_check_path(const char* path);
 bool jbclient_blacklist_check_bundle(const char* bundle);
 int jbclient_trust_library_recurse(const char *libraryPath, void *addressInCaller);
 int jbclient_trust_executable_recurse(const char *executablePath, xpc_object_t preferredArchsArray);
+bool jbclient_dyld_patch_enabled();
+int jbclient_set_dyld_patch(bool enabled);
 /************** roothide specfic *************/
 
 

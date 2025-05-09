@@ -260,3 +260,36 @@ int jbclient_trust_library_recurse(const char *libraryPath, void *addressInCalle
 	}
 	return -1;
 }
+
+bool jbclient_dyld_patch_enabled()
+{
+	static bool enabled = false;
+
+	static dispatch_once_t onceToken;
+	dispatch_once(&onceToken, ^{
+		xpc_object_t xargs = xpc_dictionary_create_empty();
+		xpc_object_t xreply = jbserver_xpc_send(JBS_DOMAIN_ROOTHIDE, JBS_ROOTHIDE_DYLD_PATCH_ENABLED_GET, xargs);
+		if (xreply) {
+			int64_t result = xpc_dictionary_get_int64(xreply, "result");
+			if(result == 0) {
+				enabled = xpc_dictionary_get_bool(xreply, "enabled");
+			}
+			xpc_release(xreply);
+		}
+	});
+
+	return enabled;
+}
+
+int jbclient_set_dyld_patch(bool enabled)
+{
+    xpc_object_t xargs = xpc_dictionary_create_empty();
+	xpc_dictionary_set_bool(xargs, "enabled", enabled);
+	xpc_object_t xreply = jbserver_xpc_send(JBS_DOMAIN_ROOTHIDE, JBS_ROOTHIDE_DYLD_PATCH_ENABLED_SET, xargs);
+	if (xreply) {
+		int64_t result = xpc_dictionary_get_int64(xreply, "result");
+		xpc_release(xreply);
+		return result;
+	}
+	return -1;
+}

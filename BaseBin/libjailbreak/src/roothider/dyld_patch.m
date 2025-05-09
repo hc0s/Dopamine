@@ -649,6 +649,16 @@ int proc_patch_dyld_internal(pid_t pid, bool spinlockFixOnly)
 
     if(spinlockFixOnly)
     {
+        bool iOS15Arm64e = false;
+#ifdef __arm64e__
+        if (!__builtin_available(iOS 16.0, *))
+        {
+            iOS15Arm64e = true;
+        }
+#endif
+        assert(iOS15Arm64e == true);
+        assert(dyld_patch_enabled());
+
         uint64_t loadDyldCache_old = dyld_address + stockDyldInfo->loadDyldCache_function;
         uint64_t loadDyldCache_new = remoteLoadAddress + patchedDyldInfo->loadDyldCache_function;
         uint64_t loadDyldCache_orig = remoteLoadAddress + patchedDyldInfo->loadDyldCache_trampoline;

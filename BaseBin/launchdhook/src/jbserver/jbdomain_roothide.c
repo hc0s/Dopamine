@@ -146,6 +146,40 @@ static int roothide_jailbreakd_checkin(audit_token_t *callerToken, xpc_object_t 
 	return 0;
 }
 
+static int roothide_dyld_patch_enabled(audit_token_t *callerToken, bool* enabled)
+{
+	*enabled = jbinfo(dyld_patch_enabled);
+	return 0;
+}
+
+static int roothide_set_dyld_patch(audit_token_t *callerToken, bool enabled)
+{
+	pid_t pid = audit_token_to_pid(*callerToken);
+	uid_t uid = audit_token_to_euid(*callerToken);
+
+    uint32_t csFlags = 0;
+    csops(getpid(), CS_OPS_STATUS, &csFlags, sizeof(csFlags));
+
+	if(uid != 0 && (csFlags & CS_PLATFORM_BINARY)==0) {
+		JBLogError("roothide_set_dyld_patch: denying request from %d,%d", pid, uid);
+		return -1;
+	}
+	
+#ifdef __arm64e__
+	if (!__builtin_available(iOS 16.0, *))
+	{
+		if(roothide_config_set_spinlock_fix(enabled) != 0) {
+			JBLogError("roothide_config_set_spinlock_fix failed");
+			return -1;
+		}
+	}
+#endif
+
+	jbinfo(dyld_patch_enabled) = enabled;
+	
+	return 0;
+}
+
 struct jbserver_domain gRootHideDomain = {
 	.permissionHandler = roothide_domain_allowed,
 	.actions = {
@@ -215,6 +249,24 @@ struct jbserver_domain gRootHideDomain = {
 				{ 0 },
 			},
 		},
+		//JBS_ROOTHIDE_DYLD_PATCH_ENABLED_GET
+        {
+            .handler = roothide_dyld_patch_enabled,
+            .args = (jbserver_arg[]) {
+                    { .name = "caller-token", .type = JBS_TYPE_CALLER_TOKEN, .out = false },
+                    { .name = "enabled", .type = JBS_TYPE_BOOL, .out = true },
+                    { 0 },
+            },
+        },
+		//JBS_ROOTHIDE_DYLD_PATCH_ENABLED_SET
+        {
+            .handler = roothide_set_dyld_patch,
+            .args = (jbserver_arg[]) {
+                    { .name = "caller-token", .type = JBS_TYPE_CALLER_TOKEN, .out = false },
+                    { .name = "enabled", .type = JBS_TYPE_BOOL, .out = false },
+                    { 0 },
+            },
+        },
 		{ 0 },
 	},
 };

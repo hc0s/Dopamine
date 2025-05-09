@@ -63,6 +63,16 @@ void roothide_launchd_postinit(bool firstLoad)
 		{
 			hideDeveloperMode();
 		}
+		
+#ifdef __arm64e__
+		if (!__builtin_available(iOS 16.0, *))
+		{
+			if(roothide_config_set_spinlock_fix(dyld_patch_enabled()) != 0) {
+				launchd_panic("roothide_config_set_spinlock_fix failed");
+				return;
+			}
+		}
+#endif
 	}
 	else
 	{		
@@ -132,6 +142,15 @@ int roothide_launchd___posix_spawn_posthook(pid_t *restrict pidp, const char *re
 	if(envbuf_getenv(envc, "DYLD_INSERT_LIBRARIES")) {
 		envbuf_setenv(&envc, "DYLD_IN_CACHE", "0");
 	}
+
+#ifdef __arm64e__
+	if (!__builtin_available(iOS 16.0, *))
+	{
+		if(!dyld_patch_enabled() && process_force_dyld_patch(path, argv)) {
+			envbuf_setenv(&envc, "SPINLOCK_FIX_DISABLED", "1");
+		}
+	}
+#endif
 
 	int pid = 0;
 	int ret = __posix_spawn_orig_wrapper(&pid, path, desc, argv, envc);
@@ -278,7 +297,7 @@ int roothide_launchd___posix_spawn_prehook(pid_t *restrict pidp, const char *res
 	
 			volatile pid_t* blacklistedPidp = allocBlacklistProcessId();
 	
-			if(roothideBlacklisted) {
+			if(roothideBlacklisted || !dyld_patch_enabled() || !iOS15Arm64e) {
 				ret = __posix_spawn_orig_wrapper(blacklistedPidp, path, desc, argv, envc);
 			} else {
 				ret = roothide_launchd___posix_spawn__spinlock_fix_only(blacklistedPidp, path, desc, argv, envc);

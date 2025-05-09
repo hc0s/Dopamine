@@ -137,7 +137,7 @@ int main(int argc, char* argv[])
 				print_usage();
 				return 2;
 			}
-			return jbclient_trust_file_by_path(filepath);
+			return jbclient_dyld_patch_enabled() ? jbclient_trust_file_by_path(filepath) : jbclient_trust_executable_recurse(filepath,NULL);
 /************************ roothide specific ********************************/
 
 			

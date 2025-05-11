@@ -57,7 +57,7 @@ static int trust_macho_recurse(const char *machoPath, const char *dlopenCallerIm
 	return 0;
 }
 
-static int roothide_trust_executable_recurse(const char *executablePath, xpc_object_t preferredArchsArray)
+int roothide_trust_executable_recurse(const char *executablePath, xpc_object_t preferredArchsArray)
 {
 	return trust_macho_recurse(executablePath, NULL, NULL, preferredArchsArray);
 }

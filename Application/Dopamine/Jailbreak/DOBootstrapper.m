@@ -1331,6 +1331,9 @@ int getCFMajorVersion(void)
     if(error) {
         return error;
     }
+    if(![[NSFileManager defaultManager] removeItemAtPath:unpackedPath error:&error]) {
+        return error;
+    }
 
     
     [[NSString stringWithFormat:@"%d",DOPAMINE_INSTALL_VERSION] writeToFile:jbrootPrefix(@"/.installed_dopamine") atomically:YES encoding:NSUTF8StringEncoding error:nil];

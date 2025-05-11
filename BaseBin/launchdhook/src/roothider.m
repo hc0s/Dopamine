@@ -17,6 +17,7 @@ extern int posix_spawnattr_getprocesstype_np(const posix_spawnattr_t *__restrict
 extern int posix_spawnattr_setexceptionports_np(posix_spawnattr_t *__restrict, exception_mask_t, mach_port_t, exception_behavior_t, thread_state_flavor_t) __OSX_AVAILABLE_STARTING(__MAC_10_5, __IPHONE_2_0);
 
 //from launchdhook/spawn_hook.c
+extern int systemwide_trust_file_by_path(const char *path);
 extern int platform_set_process_debugged(uint64_t pid, bool fullyDebugged);
 extern int __posix_spawn_hook(pid_t *restrict pid, const char *restrict path, struct _posix_spawn_args_desc *desc, char *const argv[restrict], char *const envp[restrict]);
 extern int __posix_spawn_orig_wrapper(pid_t *restrict pid, const char *restrict path, struct _posix_spawn_args_desc *desc, char *const argv[restrict], char *const envp[restrict]);
@@ -116,6 +117,12 @@ void roothide_launchd_postinit(bool firstLoad)
 
 	// load jailbreakd after applying hooks
 	assert(initJailbreakd(firstLoad) == 0);
+}
+
+extern int roothide_trust_executable_recurse(const char *executablePath, xpc_object_t preferredArchsArray);
+int roothide_launchd_trust_executable(const char* path)
+{
+	return dyld_patch_enabled() ? systemwide_trust_file_by_path(path) : roothide_trust_executable_recurse(path, NULL);
 }
 
 int roothide_launchd___posix_spawn_posthook(pid_t *restrict pidp, const char *restrict path, struct _posix_spawn_args_desc *desc, char *const argv[restrict], char *const envp[restrict])
